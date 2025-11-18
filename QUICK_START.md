@@ -10,6 +10,8 @@
 
 ### 方法 1: 在您的项目中使用修改后的版本
 
+**使用 yarn/npm:**
+
 ```bash
 # 1. 进入您的项目目录
 cd /path/to/your/project
@@ -19,29 +21,79 @@ cd /path/to/your/project
 # "@mykin-ai/expo-audio-stream": "file:../expo-audio-stream"
 
 # 3. 安装依赖
-yarn install
+yarn install  # 或 npm install
 
 # 4. iOS: 安装 pods
 npx pod-install
 
 # 5. 运行应用
-yarn ios
+yarn ios  # 或 npm run ios
 ```
 
+**使用 pnpm:**
+
+```bash
+# 1. 进入您的项目目录
+cd /path/to/your/project
+
+# 2. 修改 package.json，指向本地库
+# 将以下内容添加到 dependencies:
+# "@mykin-ai/expo-audio-stream": "file:../expo-audio-stream"
+
+# 3. 安装依赖
+pnpm install
+
+# 4. iOS: 安装 pods
+npx pod-install
+
+# 5. 运行应用
+pnpm ios
+```
+
+**📝 注意**:
+- 如果使用 pnpm，建议查看 `PNPM_SETUP.md` 了解更多详细配置
+- pnpm 用户可能需要添加 `shamefully-hoist=true` 到 `.npmrc` 文件
+
 ### 方法 2: 直接测试（推荐先测试）
+
+**使用 yarn/npm:**
 
 ```bash
 # 在工具库目录
 cd /Users/benn/Documents/w/expo-audio-stream
 
 # 构建
-yarn build
+yarn build  # 或 npm run build
 
 # 在您的项目中临时链接
 cd /path/to/your/project
-yarn add file:../expo-audio-stream
+yarn add file:../expo-audio-stream  # 或 npm install file:../expo-audio-stream
 npx pod-install
 yarn ios
+```
+
+**使用 pnpm:**
+
+```bash
+# 在工具库目录
+cd /Users/benn/Documents/w/expo-audio-stream
+
+# 构建
+pnpm build
+
+# 方式 A: 使用 pnpm link（推荐）
+pnpm link --global
+
+cd /path/to/your/project
+pnpm link --global @mykin-ai/expo-audio-stream
+npx pod-install
+pnpm ios
+
+# 方式 B: 使用 file: 路径
+cd /path/to/your/project
+pnpm add file:../expo-audio-stream
+npx pod-install
+pnpm ios
 ```
 
 ---

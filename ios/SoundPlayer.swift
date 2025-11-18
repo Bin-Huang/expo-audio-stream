@@ -491,7 +491,8 @@ class SoundPlayer {
                 Logger.debug("[SoundPlayer] 📥 Scheduling buffer \(self.scheduledBufferCount)/\(self.maxScheduledBuffers), duration: \(String(format: "%.1f", bufferDurationMs))ms, queue: \(self.audioQueue.count), frames: \(buffer.frameLength)")
 
                 // Schedule the buffer for playback
-                self.audioPlayerNode.scheduleBuffer(buffer) { [weak self] in
+                // Use .dataRendered to get callback earlier (when data is consumed, not when finished playing)
+                self.audioPlayerNode.scheduleBuffer(buffer, completionCallbackType: .dataRendered) { [weak self] callbackType in
                     DispatchQueue.main.async {
                         guard let self = self else {
                             promise(nil)

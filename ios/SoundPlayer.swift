@@ -217,6 +217,11 @@ class SoundPlayer {
     /// Sets up the audio engine and player node if not already configured
     /// - Throws: Error if audio engine setup fails
     public func ensureAudioEngineIsSetup() throws {
+        // Configure audio session for optimal playback
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setPreferredIOBufferDuration(0.02) // 20ms buffer for smooth playback
+        Logger.debug("[SoundPlayer] Set audio session buffer duration to 20ms")
+
         // If engine exists, stop and detach nodes
         if let existingEngine = self.audioEngine {
             if existingEngine.isRunning {
@@ -224,7 +229,7 @@ class SoundPlayer {
             }
             self.detachOldAvNodesFromEngine()
         }
-        
+
         // Create new engine
         self.audioEngine = AVAudioEngine()
                     

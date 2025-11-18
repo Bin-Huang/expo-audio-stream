@@ -374,7 +374,9 @@ public class ExpoPlayAudioStreamModule: Module, AudioStreamManagerDelegate, Micr
             options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
         if let settings = recordingSettings {
             try audioSession.setPreferredSampleRate(settings.sampleRate)
-            try audioSession.setPreferredIOBufferDuration(1024 / settings.sampleRate)
+            // Increase buffer duration to reduce glitches (0.02 seconds = 20ms)
+            // Larger buffer = more latency but smoother playback
+            try audioSession.setPreferredIOBufferDuration(0.02)
         }
         try audioSession.setActive(true)
         isAudioSessionInitialized = true

@@ -19,7 +19,7 @@ class SoundPlayer {
 
     // Buffer pre-scheduling for streaming playback
     private var scheduledBufferCount: Int = 0
-    private let maxScheduledBuffers: Int = 100
+    private let maxScheduledBuffers: Int = 3  // Keep it small for lower latency
 
     // specific turnID to ignore sound events
     internal let suspendSoundEventTurnId: String = "suspend-sound-events"

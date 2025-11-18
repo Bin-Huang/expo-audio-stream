@@ -16,7 +16,11 @@ class SoundPlayer {
     private var isPlaying: Bool = false  // Tracks if audio is currently playing
     private var isInterrupted: Bool = false
     public var isAudioEngineIsSetup: Bool = false
-    
+
+    // Buffer pre-scheduling for streaming playback
+    private var scheduledBufferCount: Int = 0
+    private let maxScheduledBuffers: Int = 3
+
     // specific turnID to ignore sound events
     internal let suspendSoundEventTurnId: String = "suspend-sound-events"
   
@@ -272,7 +276,7 @@ class SoundPlayer {
         } else {
             Logger.debug("Player is not playing")
         }
-        
+
         // Stop the engine and disable voice processing if in voice processing mode
         if config.playbackMode == .voiceProcessing {
             if let engine = self.audioEngine, engine.isRunning {
@@ -281,7 +285,9 @@ class SoundPlayer {
                 self.isAudioEngineIsSetup = false
             }
         }
-        
+
+        // Reset counters
+        self.scheduledBufferCount = 0
         self.segmentsLeftToPlay = 0
         promise.resolve(nil)
     }
@@ -451,86 +457,75 @@ class SoundPlayer {
                 self.delegate?.onSoundStartedPlaying()
             }
             self.segmentsLeftToPlay += 1
-            // If not already playing, start playback
-            if audioQueue.count == 1 {
-                Logger.debug("[SoundPlayer] Starting playback [ \(audioQueue.count)]")
-                playNextInQueue()
-            }
+            // Schedule waiting buffers (pre-scheduling for streaming playback)
+            scheduleWaitingBuffers()
         } catch {
             Logger.debug("[SoundPlayer] Failed to enqueue audio chunk: \(error.localizedDescription)")
             rejecter("ERROR_SOUND_PLAYER", "Failed to enqueue audio chunk: \(error.localizedDescription)", nil)
         }
     }
     
-    /// Plays the next audio buffer in the queue
-    /// This method is responsible for:
-    /// 1. Checking if there are audio chunks in the queue
-    /// 2. Starting the audio player node if it's not already playing
-    /// 3. Scheduling the next audio buffer for playback
-    /// 4. Handling completion callbacks and recursively playing the next chunk
-    private func playNextInQueue() {
-        Logger.debug("[SoundPlayer] Playing audio [ \(audioQueue.count)]")
-          
-        // Start the audio player node if it's not already playing
-        if !self.audioPlayerNode.isPlaying {
-            Logger.debug("[SoundPlayer] Starting Player")
-            self.audioPlayerNode.play()
-        }
-        
-        // Use a dedicated queue for buffer access to avoid blocking the main thread
-        self.bufferAccessQueue.async {
-            // Check if queue is empty INSIDE the async block to avoid race conditions
-            guard !self.audioQueue.isEmpty else {
-                Logger.debug("[SoundPlayer] Queue is empty, nothing to play")
-                return
-            }
+    /// Schedules waiting buffers for playback
+    /// Implements buffer pre-scheduling to eliminate gaps between chunks in streaming playback
+    /// Keeps 2-3 buffers scheduled in AVAudioPlayerNode at all times
+    private func scheduleWaitingBuffers() {
+        self.bufferAccessQueue.async { [weak self] in
+            guard let self = self else { return }
 
-            // Get the first buffer tuple from the queue (buffer, promise, turnId)
-            if let (buffer, promise, turnId) = self.audioQueue.first {
-                // Remove the buffer from the queue immediately to avoid playing it twice
+            // Schedule as many buffers as possible (up to maxScheduledBuffers)
+            while !self.audioQueue.isEmpty && self.scheduledBufferCount < self.maxScheduledBuffers {
+                guard let (buffer, promise, turnId) = self.audioQueue.first else { break }
                 self.audioQueue.removeFirst()
 
-                // Schedule the buffer for playback with a completion handler
+                // Increment scheduled buffer count
+                self.scheduledBufferCount += 1
+
+                Logger.debug("[SoundPlayer] Scheduling buffer \(self.scheduledBufferCount)/\(self.maxScheduledBuffers), queue size: \(self.audioQueue.count)")
+
+                // Schedule the buffer for playback
                 self.audioPlayerNode.scheduleBuffer(buffer) { [weak self] in
-                    // ✅ Move to main queue to avoid blocking Core Audio's realtime thread
                     DispatchQueue.main.async {
                         guard let self = self else {
                             promise(nil)
                             return
                         }
-                        
-                        // Decrement the count of segments left to play
+
+                        // Decrement both counters
+                        self.scheduledBufferCount -= 1
                         self.segmentsLeftToPlay -= 1
 
-                        // Check if this is the final segment in the current sequence
+                        Logger.debug("[SoundPlayer] Buffer completed, remaining scheduled: \(self.scheduledBufferCount), segments left: \(self.segmentsLeftToPlay)")
+
                         let isFinalSegment = self.segmentsLeftToPlay == 0
-                        
-                        // ✅ Notify delegate about playback completion on main thread (unless using the suspend events ID)
+
+                        // Notify delegate about playback completion
                         if turnId != self.suspendSoundEventTurnId {
                             self.delegate?.onSoundChunkPlayed(isFinalSegment)
                         }
 
-                        // Resolve the promise to indicate successful playback
+                        // Resolve the promise
                         promise(nil)
-                        
-                        // If this is the final segment and we're in voiceProcessing mode,
-                        // stop the engine and disable voice processing
+
+                        // Try to schedule more buffers
+                        self.scheduleWaitingBuffers()
+
+                        // Handle final segment cleanup for voice processing mode
                         if isFinalSegment && self.config.playbackMode == .voiceProcessing {
                             Logger.debug("[SoundPlayer] Final segment in voice processing mode, stopping engine")
                             if let engine = self.audioEngine, engine.isRunning {
                                 engine.stop()
-                                // Disable voice processing after stopping the engine
                                 try? self.disableVoiceProcessing()
                                 self.isAudioEngineIsSetup = false
                             }
                         }
-                        
-                        // Recursively play the next chunk if not interrupted and queue is not empty
-                        if !self.isInterrupted && !self.audioQueue.isEmpty {
-                            self.playNextInQueue()
-                        }
                     }
                 }
+            }
+
+            // Start playback if not already playing and we have buffers scheduled
+            if !self.audioPlayerNode.isPlaying && self.scheduledBufferCount > 0 {
+                Logger.debug("[SoundPlayer] Starting playback with \(self.scheduledBufferCount) buffers scheduled")
+                self.audioPlayerNode.play()
             }
         }
     }

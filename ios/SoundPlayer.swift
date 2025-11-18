@@ -19,7 +19,7 @@ class SoundPlayer {
 
     // Buffer pre-scheduling for streaming playback
     private var scheduledBufferCount: Int = 0
-    private let maxScheduledBuffers: Int = 3
+    private let maxScheduledBuffers: Int = 100
 
     // specific turnID to ignore sound events
     internal let suspendSoundEventTurnId: String = "suspend-sound-events"
@@ -440,7 +440,10 @@ class SoundPlayer {
                 Logger.debug("[SoundPlayer] Failed to process audio chunk")
                 throw SoundPlayerError.invalidBase64String
             }
-            
+
+            let bufferDurationMs = (Double(buffer.frameLength) / buffer.format.sampleRate) * 1000
+            Logger.debug("[SoundPlayer] 🎤 New chunk arrived: \(String(format: "%.1f", bufferDurationMs))ms, \(buffer.frameLength) frames, queue size: \(self.audioQueue.count), scheduled: \(self.scheduledBufferCount)")
+
             // Enable voice processing for voice processing mode just before we start playback
             let isFirstChunk = self.audioQueue.isEmpty && self.segmentsLeftToPlay == 0
             if isFirstChunk && config.playbackMode == .voiceProcessing {
@@ -472,6 +475,9 @@ class SoundPlayer {
         self.bufferAccessQueue.async { [weak self] in
             guard let self = self else { return }
 
+            let startTime = Date()
+            var scheduledThisRound = 0
+
             // Schedule as many buffers as possible (up to maxScheduledBuffers)
             while !self.audioQueue.isEmpty && self.scheduledBufferCount < self.maxScheduledBuffers {
                 guard let (buffer, promise, turnId) = self.audioQueue.first else { break }
@@ -479,8 +485,10 @@ class SoundPlayer {
 
                 // Increment scheduled buffer count
                 self.scheduledBufferCount += 1
+                scheduledThisRound += 1
 
-                Logger.debug("[SoundPlayer] Scheduling buffer \(self.scheduledBufferCount)/\(self.maxScheduledBuffers), queue size: \(self.audioQueue.count)")
+                let bufferDurationMs = (Double(buffer.frameLength) / buffer.format.sampleRate) * 1000
+                Logger.debug("[SoundPlayer] 📥 Scheduling buffer \(self.scheduledBufferCount)/\(self.maxScheduledBuffers), duration: \(String(format: "%.1f", bufferDurationMs))ms, queue: \(self.audioQueue.count), frames: \(buffer.frameLength)")
 
                 // Schedule the buffer for playback
                 self.audioPlayerNode.scheduleBuffer(buffer) { [weak self] in
@@ -491,10 +499,11 @@ class SoundPlayer {
                         }
 
                         // Decrement both counters
+                        let completionTime = Date()
                         self.scheduledBufferCount -= 1
                         self.segmentsLeftToPlay -= 1
 
-                        Logger.debug("[SoundPlayer] Buffer completed, remaining scheduled: \(self.scheduledBufferCount), segments left: \(self.segmentsLeftToPlay)")
+                        Logger.debug("[SoundPlayer] ✅ Buffer completed, remaining scheduled: \(self.scheduledBufferCount), segments left: \(self.segmentsLeftToPlay), queue: \(self.audioQueue.count)")
 
                         let isFinalSegment = self.segmentsLeftToPlay == 0
 
@@ -524,8 +533,12 @@ class SoundPlayer {
 
             // Start playback if not already playing and we have buffers scheduled
             if !self.audioPlayerNode.isPlaying && self.scheduledBufferCount > 0 {
-                Logger.debug("[SoundPlayer] Starting playback with \(self.scheduledBufferCount) buffers scheduled")
+                let elapsedMs = Date().timeIntervalSince(startTime) * 1000
+                Logger.debug("[SoundPlayer] 🎵 Starting playback with \(self.scheduledBufferCount) buffers scheduled (scheduled \(scheduledThisRound) in \(String(format: "%.2f", elapsedMs))ms)")
                 self.audioPlayerNode.play()
+            } else if scheduledThisRound > 0 {
+                let elapsedMs = Date().timeIntervalSince(startTime) * 1000
+                Logger.debug("[SoundPlayer] 📦 Scheduled \(scheduledThisRound) more buffers in \(String(format: "%.2f", elapsedMs))ms, total: \(self.scheduledBufferCount)")
             }
         }
     }

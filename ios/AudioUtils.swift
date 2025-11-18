@@ -270,7 +270,10 @@ class AudioUtils {
                 }
             }
         }
-        
+
+        // Apply fade in/out to eliminate popping at chunk boundaries
+        applyFadeInOut(buffer: pcmBuffer, fadeFrames: 32)
+
         return pcmBuffer
     }
     
@@ -279,6 +282,30 @@ class AudioUtils {
     ///   - base64String: Base64 encoded raw PCM_S16LE audio data
     ///   - audioFormat: Target audio format for the buffer (should be Float32)
     /// - Returns: AVAudioPCMBuffer containing the processed audio data, or nil if processing fails
+    /// Apply fade in/out to eliminate popping at chunk boundaries
+    static func applyFadeInOut(buffer: AVAudioPCMBuffer, fadeFrames: Int = 64) {
+        guard let channelData = buffer.floatChannelData else { return }
+        let frameLength = Int(buffer.frameLength)
+        let actualFadeFrames = min(fadeFrames, frameLength / 4) // Max 25% of buffer
+
+        // Fade in at start
+        for i in 0..<actualFadeFrames {
+            let gain = Float(i) / Float(actualFadeFrames)
+            for channel in 0..<Int(buffer.format.channelCount) {
+                channelData[channel][i] *= gain
+            }
+        }
+
+        // Fade out at end
+        for i in 0..<actualFadeFrames {
+            let gain = Float(actualFadeFrames - i) / Float(actualFadeFrames)
+            let index = frameLength - actualFadeFrames + i
+            for channel in 0..<Int(buffer.format.channelCount) {
+                channelData[channel][index] *= gain
+            }
+        }
+    }
+
     static func processPCM16LEAudioChunk(_ base64String: String, audioFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
         // Verify format is Float32
         guard audioFormat.commonFormat == .pcmFormatFloat32 else {
@@ -346,7 +373,10 @@ class AudioUtils {
                 }
             }
         }
-        
+
+        // Apply fade in/out to eliminate popping at chunk boundaries
+        applyFadeInOut(buffer: pcmBuffer, fadeFrames: 32)  // 32 frames = 2ms @ 16kHz
+
         return pcmBuffer
     }
 }

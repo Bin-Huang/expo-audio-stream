@@ -227,16 +227,29 @@ class SoundPlayer {
         audioPlayerNode = AVAudioPlayerNode()
         if let playerNode = self.audioPlayerNode {
             audioEngine.attach(playerNode)
+            
+            // Configure voice processing based on playback mode BEFORE connecting nodes
+            if config.playbackMode == .conversation {
+                // Use the existing enableVoiceProcessing method for consistency
+                do {
+                    try enableVoiceProcessing()
+                    Logger.debug("[SoundPlayer] Voice processing enabled for conversation mode")
+                } catch {
+                    Logger.debug("[SoundPlayer] Failed to enable voice processing in conversation mode: \(error.localizedDescription)")
+                    // Continue without voice processing rather than crashing
+                }
+            } else {
+                // Ensure voice processing is disabled for other modes
+                do {
+                    try disableVoiceProcessing()
+                } catch {
+                    Logger.debug("[SoundPlayer] Failed to disable voice processing: \(error.localizedDescription)")
+                }
+            }
+            
+            // Connect nodes after voice processing is configured
             audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: self.audioPlaybackFormat)
             audioEngine.connect(audioEngine.mainMixerNode, to: audioEngine.outputNode, format: self.audioPlaybackFormat)
-            
-            // Only enable voice processing immediately for conversation mode
-            // For voice processing mode, we'll enable it only during actual playback
-            if config.playbackMode == .conversation {
-                try audioEngine.inputNode.setVoiceProcessingEnabled(true)
-                try audioEngine.outputNode.setVoiceProcessingEnabled(true)
-                Logger.debug("[SoundPlayer] Voice processing immediately enabled for conversation mode (stays disabled for regular mode, and enables only during playback for voice processing mode)")
-            }
         }
         self.isAudioEngineIsSetup = true
         
